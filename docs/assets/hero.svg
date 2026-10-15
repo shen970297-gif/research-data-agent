@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">Research Data Agent</title>
+  <desc id="desc">A research prototype connecting literature evidence, experimental data and traceable reports.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#101d35"/>
+      <stop offset="1" stop-color="#112f3b"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#5eead4"/>
+      <stop offset="1" stop-color="#93c5fd"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="360" rx="24" fill="url(#bg)"/>
+  <circle cx="1090" cy="35" r="205" fill="none" stroke="#5eead4" stroke-opacity="0.10" stroke-width="1"/>
+  <circle cx="1090" cy="35" r="260" fill="none" stroke="#5eead4" stroke-opacity="0.07" stroke-width="1"/>
+  <path d="M860 290h240M860 250h240M860 210h240M860 170h240" stroke="#a5b4fc" stroke-opacity="0.1"/>
+  <g fill="#5eead4" fill-opacity="0.65">
+    <circle cx="892" cy="247" r="5"/><circle cx="924" cy="221" r="5"/>
+    <circle cx="956" cy="233" r="5"/><circle cx="988" cy="190" r="5"/>
+    <circle cx="1020" cy="170" r="5"/><circle cx="1052" cy="182" r="5"/>
+  </g>
+  <path d="M892 247 924 221 956 233 988 190 1020 170 1052 182" fill="none" stroke="url(#accent)" stroke-width="2" stroke-opacity="0.45"/>
+  <g font-family="Segoe UI, Arial, Microsoft YaHei, sans-serif">
+    <text x="64" y="67" fill="#5eead4" font-size="13" letter-spacing="3">RESEARCH WORKFLOW · EVIDENCE · ANALYSIS</text>
+    <text x="60" y="144" fill="#f8fafc" font-size="56" font-weight="700" letter-spacing="-1">Research Data Agent</text>
+    <text x="64" y="195" fill="#d4e5ee" font-size="23">连接文献证据与实验数据，让研究过程可追溯</text>
+    <rect x="64" y="235" width="640" height="2" fill="url(#accent)" opacity="0.55"/>
+    <text x="64" y="278" fill="#b6d0dc" font-size="15" letter-spacing="1">LOCAL RAG</text>
+    <circle cx="188" cy="273" r="2" fill="#5eead4"/>
+    <text x="211" y="278" fill="#b6d0dc" font-size="15" letter-spacing="1">DATA TOOLS</text>
+    <circle cx="351" cy="273" r="2" fill="#5eead4"/>
+    <text x="374" y="278" fill="#b6d0dc" font-size="15" letter-spacing="1">TRACEABLE REPORTS</text>
+    <text x="64" y="325" fill="#7297a8" font-size="12" letter-spacing="1">PYTHON 3.11 / LANGGRAPH / QDRANT / PANDAS / SCIPY</text>
+  </g>
+</svg>

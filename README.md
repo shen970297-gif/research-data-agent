@@ -1,131 +1,313 @@
+<div align="center">
+
+<img src="docs/assets/hero.svg" alt="Research Data Agent：连接文献证据与实验数据，让研究过程可追溯" width="100%">
+
 # 科研文献与实验数据分析 Agent
 
-在原 seven_day 项目上升级，目标是完成“用户问题 → 本地文献/数据工具 → 证据整理 → 可追溯报告”。
+**从一个研究问题出发，连接本地文献、实验计算与可追溯报告。**
 
-## 当前状态
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white)
+![Workflow](https://img.shields.io/badge/Workflow-LangGraph-0F766E?style=flat-square)
+![Retrieval](https://img.shields.io/badge/RAG-Qdrant-7C3AED?style=flat-square)
+![Analysis](https://img.shields.io/badge/Analysis-Pandas%20%2B%20SciPy-2563EB?style=flat-square)
+![Stage](https://img.shields.io/badge/Stage-Research%20Prototype-D97706?style=flat-square)
 
-- LangGraph：规划 → 多轮工具调用 → 审查 → 保存，支持一条任务同时查询文献和分析 CSV。
-- 独立 RAG 分支：纯文献问题走规划 → 本地检索 → 证据增强生成 → 引用审查 → 保存；混合任务仍走工具协作。
-- 工具管理、Pydantic 校验、错误反馈；同一工具连续错误允许首次调用 + 3 次修正。
-- CSV 条件筛选，完整数据快照和 ID，分组统计、两独立组双侧 Welch 检验、分组散点图、CSV 导出。
-- 本地 Qdrant 文献检索、片段 ID/文件/页码引用；保留原知识库，不自动重建。
-- SQLite 跨轮会话，JSONL 运行索引，每个任务独立保存参数、结果、来源和报告。
-- Markdown 报告；不足或失败时标记状态，保留已完成产物。
+[项目亮点](#highlights) · [示例任务](#example) · [工作流程](#workflow) · [快速开始](#quickstart) · [开发路线](#roadmap)
 
-**离线流程已测试；真实智谱模型和真实 Embedding 联调由用户运行，未通过代理自动调用。** 模型辅助审查不是科研专家复核。`completed` 表示程序检查和辅助审查通过，不保证科学结论正确。
+</div>
 
-## 运行
+---
 
-### 首次下载后的准备
+研究资料往往分散在论文 PDF、实验 CSV 和分析脚本中。本项目将这些环节组织进一个 LangGraph 工作流：模型负责理解问题和选择工具，Python 工具执行计算，检索模块提供原文证据，最终保存回答、图表、参数和来源。
 
-本仓库不包含 API key、真实实验 CSV、论文 PDF、向量索引、会话数据库或运行报告。三份 Markdown 文档用于演示；`--demo` 会自行生成合成数据，无需真实文件或 API key。
+**项目定位：面向科研学习与实验分析的单用户命令行 Agent 原型。** 当前已实现核心流程，并通过 36 项离线测试；真实模型端到端效果仍待系统验证。测试结果记录于 2026-10-15，属于本地验证，尚未配置 CI。
 
-Windows PowerShell（先安装 Python 3.11）：
+<a id="highlights"></a>
+## ✨ 项目亮点
+
+| 能力 | 实现方式 | 带来的价值 |
+| :--- | :--- | :--- |
+| **文献与数据协作** | 一个任务中多轮调用本地检索、筛选、统计和绘图工具 | 将研究依据与实验结果放在同一份报告中 |
+| **独立 RAG 路径** | 纯文献任务先检索，再基于当前证据生成回答 | 避免跳过检索，资料不足时明确返回状态 |
+| **完整数据计算** | 保存完整快照，以 `dataset_id` 交给下游工具 | 预览只展示几行，计算仍覆盖完整筛选结果 |
+| **可修正的工具调用** | Function Calling + Pydantic 校验 + 错误反馈 | 模型可根据报错修正参数，重试有次数上限 |
+| **有来源的回答** | 原文片段绑定证据 ID、文件名与页码 | 可以追溯关键回答使用了哪些材料 |
+| **跨轮会话** | SQLite 保存历史任务、工具参数和数据集信息 | 同一会话可围绕已有分析继续提问 |
+| **可检查的分析过程** | 保存数据哈希、工具结果、节点轨迹和报告 | 将模型文字与实际计算记录对照核查 |
+| **无密钥离线演示** | 合成数据 + 模拟文献 + 脚本化模型 | 不调用 API，也能体验统计、绘图与报告保存 |
+
+<a id="example"></a>
+## 🔬 一个具体任务
+
+> 分析 `experiment.csv` 中 30 分钟的记录。以 `mouse_id` 为实验单位，比较 `age_group` 中 young 与 old 两组的 `signal`。两组为独立样本，请使用双侧 Welch 检验，绘制分组图，检索本地文献，并保存带来源的报告。
+
+**适用前提：** 文件包含上述字段；分组标签、时间单位和统计设计已明确；文献检索需要预先建立本地知识库。
+
+| 阶段 | 系统会做什么 | 可核查的结果 |
+| :--- | :--- | :--- |
+| 规划 | 判断需要数据分析与文献证据，识别缺失信息 | 任务计划；必要时向用户澄清 |
+| 筛选 | 从原始 CSV 选择指定记录，保存完整数据 | 数据集 ID、记录数、筛选条件与文件哈希 |
+| 分析 | 调用分组统计、两组比较和绘图工具 | 均值、标准差、组间差值、置信区间、p 值和图表 |
+| 检索 | 查询本地 PDF / Markdown 知识库 | 原文片段、来源文件、页码和证据编号 |
+| 审查 | 检查引用编号，辅助检查回答与工具结果的一致性 | 审查状态及未解决问题 |
+| 保存 | 关联回答、原始计算记录、引用与产物 | Markdown 报告、图片、JSON 记录；按请求导出 CSV |
+
+### 离线演示可以得到什么？
+
+运行 `--demo` 会生成 8 条合成记录，使用脚本化模型驱动真实计算工具：
+
+| 合成分组 | 样本数 | signal 均值 |
+| :--- | ---: | ---: |
+| young | 4 | 13.00 |
+| old | 4 | 6.00 |
+
+两组均值差为 **7.00**，双侧 Welch 检验 **p ≈ 0.00861833**。程序同时生成分组散点图、完整数据 CSV 和 Markdown 报告。
+
+> **这是软件功能演示。** 数据、文献和模型决策均为模拟；统计计算与绘图由实际工具执行。这些数值不能支持真实生物学结论，也不代表真实模型的任务成功率。
+
+<a id="workflow"></a>
+## 🧭 工作流程
+
+```mermaid
+flowchart TD
+    userInput["用户问题与会话上下文"] --> plan["plan：制定计划"]
+    plan --> route{"任务类型"}
+    route -->|纯文献| retrieve["rag_retrieve：检索本地证据"]
+    retrieve -->|有证据| generate["rag_generate：基于证据回答"]
+    retrieve -->|无有效证据| save["finalize：保存结果与状态"]
+    route -->|数据或混合任务| agent["agent：选择工具或生成回答"]
+    agent -->|请求工具| tools["tools：校验参数并执行"]
+    tools -->|结果或可修正错误| agent
+    agent -->|形成回答| review["review：引用检查与辅助审查"]
+    generate --> review
+    review -->|通过或达到上限| save
+    review -->|RAG 答案需修订| generate
+    review -->|工具路径需修订| agent
+    route -->|需要澄清或规划失败| save
+```
+
+图示为主要执行路径；调用预算耗尽、工具异常或运行中需要澄清时，也会进入保存阶段。普通问答复用 `agent` 路径，可以不调用工具。
+
+**当前执行方式为串行。** 模型可以在一轮提出多个工具请求，程序依次执行；尚未实现文献与数据分支并行，也未实现独立子 Agent 分工。
+
+## 🧰 工具箱
+
+工具通过统一注册表管理：**名称 → 用途描述 → 参数模型 → Python 执行函数**。模型接收工具说明和参数 Schema，本地代码负责校验与执行。
+
+| 工具 | 用途 |
+| :--- | :--- |
+| `request_clarification` | 缺少必要信息时向用户提问，暂停本次任务 |
+| `select_rows` | 按多个 AND 条件筛选 CSV，保存完整数据集 |
+| `filter_dataset` | 兼容原有的 `time` 区间筛选 |
+| `summarize_groups` | 分组计算数量、均值、样本标准差、中位数等 |
+| `compare_groups` | 对已明确的两个独立组执行双侧 Welch 检验 |
+| `plot_groups` | 绘制分组散点和均值线 |
+| `export_dataset` | 导出完整筛选数据，独立于预览行数限制 |
+| `search_literature` | 检索本地文献，返回证据 ID、原文与页码 |
+
+当前执行已注册的 Python 工具，不开放模型生成任意 Python 或 SQL 的执行能力。数据概览工具未注册到主流程。
+
+<a id="quickstart"></a>
+## 🚀 快速开始
+
+当前验证环境为 **Windows / PowerShell + Python 3.11**。从项目根目录执行下面的命令。
+
+### 1. 下载并安装
 
 ```powershell
+git clone https://github.com/shen970297-gif/research-data-agent.git
+cd research-data-agent
 python -m venv .venv
 & .\.venv\Scripts\python.exe -m pip install -r requirements-lock.txt
-# 仅在 .env 不存在时复制，避免覆盖已有配置
+```
+
+`requirements.txt` 列出直接依赖，`requirements-lock.txt` 记录已验证环境的完整依赖版本。
+
+### 2. 先跑无密钥演示
+
+```powershell
+& .\.venv\Scripts\python.exe .\src\main.py --demo
+```
+
+演示不读取真实实验数据、不需要 `.env`、不调用模型 API。输出路径会打印到终端，文件保存在 `reports/offline_demo/` 下。
+
+### 3. 配置真实模型
+
+```powershell
+# 保留已有配置，只在文件不存在时复制模板
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 New-Item -ItemType Directory -Force data/uploads | Out-Null
-& .\.venv\Scripts\python.exe .\src\main.py --demo
 ```
 
-调用真实模型前，在本机 `.env` 中填写配置，将自己的 CSV 放到 `data/uploads`，文献放到 `data/reference`。首次文献检索前运行 `src/build_vector_store.py` 建库，会调用配置的 Embedding API；已有索引需要替换时才使用后文的 `--rebuild`。
+在本机 `.env` 中填写配置：
 
-### 已有环境
+| 配置项 | 作用 | 模板值 |
+| :--- | :--- | :--- |
+| `LLM_MODEL_ID` | 对话模型名称 | `glm-4-flash` |
+| `LLM_API_KEY` | 模型服务密钥 | 留空，运行前自行填写 |
+| `LLM_BASE_URL` | 模型接口地址 | 智谱 OpenAI 兼容接口 |
+| `LLM_TIMEOUT` | 单次模型请求超时，单位秒 | `120` |
+| `EMBEDDING_MODEL` | 建库与查询使用的向量模型 | `embedding-3` |
 
-在项目目录的 PowerShell 中运行。现有 `.venv` 继续使用 Python 3.11。
+对话与 Embedding 配置目前共用 `LLM_API_KEY` 和 `LLM_BASE_URL`。真实对话、建库和检索可能产生服务商 API 费用。
 
-```powershell
-# 无需密钥：合成数据 + 脚本化模型，不调用任何模型 API
-& .\.venv\Scripts\python.exe .\src\main.py --demo
+### 4. 准备自己的数据与文献
 
-# 离线测试，不读取真实数据或调用模型
-& .\.venv\Scripts\python.exe -m unittest discover -s tests -v
-
-# 真实单次任务，会调用 .env 配置的模型
-& .\.venv\Scripts\python.exe .\src\main.py "筛选定量-总表.csv中time在14到45之间的记录，只返回file、time、sbr，展示5条。" --session lesson1
-
-# 连续对话；输入 exit 退出
-& .\.venv\Scripts\python.exe .\src\main.py --session lesson1
+```text
+data/
+├── uploads/           # 自己的实验 CSV
+└── reference/         # PDF 论文与 Markdown 参考资料
 ```
 
-PyCharm 也可继续运行 `src/day4_research_agent.py` 或 `src/tool_agent.py`，二者均进入统一命令行。直接运行无参数时，等待你输入问题。换 `--session` 值开启独立会话；默认 `default` 会持续保存历史。
+仓库附带三份示例 Markdown 资料，不包含真实实验数据、论文 PDF 或向量索引。
 
-新环境可安装 `requirements-lock.txt`。`.env.example` 给出配置名，真实密钥只放本机 `.env`。
-
-## 代码阅读顺序
-
-| 文件 | 作用 |
-|---|---|
-| `src/main.py` | 接收用户问题、会话 ID、显示结果 |
-| `src/research_agent.py` | LangGraph 总流程、RAG 分支和调用预算 |
-| `src/rag_pipeline.py` | RAG 专用生成提示词，绑定本次检索原文与引用 ID |
-| `src/tool_registry.py` | 工具名、说明、参数模型、执行函数的对应关系 |
-| `src/research_schema.py` | 规划、分析、检索和审查的参数规范 |
-| `src/tool_agent.py` | Function Calling 消息配对、参数错误反馈与停止条件 |
-| `src/research_tools.py` | Pandas/SciPy/Matplotlib 真实计算和文献检索适配 |
-| `src/research_storage.py` | 完整数据快照、文件哈希、SQLite 会话 |
-| `src/research_report.py` | 引用 ID 检查、原始计算附录、Markdown 报告 |
-
-原来的 `data_schema.py` / `filter_request.py` / `tools.py` 保留兼容和学习用途。旧 profile 函数未注册，也不作为主流程的数据概览功能。原互斥路由被统一图接替，备份中保留修改前代码。
-
-## 数据和证据约定
-
-- 用户 CSV 位于 `data/uploads`，PDF/Markdown 位于 `data/reference`。
-- `select_rows` 多个条件按 AND 合并，只支持数值大小比较和文本/数值相等比较；不执行模型生成的 Python/SQL。
-- `max_rows` 只限制给模型展示多少条。计算使用 `dataset_id` 指向的完整快照。
-- 修改时间范围时，从原始 CSV 重新选择；CSV 内容变化后，拒绝继续使用旧快照。
-- CSV 采用 Pandas 默认类型推断和缺失值规则；不会猜测年龄组、时间单位或样本 ID。
-- 分组统计默认排除分组/指标/指定单位列缺失的记录，并报告数量；不自动删除异常值。
-- 指定 `unit_column` 时，同单位同组重复记录默认报错；只有用户确认后使用 `repeated=mean` 聚合。
-- Welch 仅支持已确认的两独立组、每组至少 2 个有效单位。跨组重复 ID 会被拒绝。暂不支持配对、混合模型、多组/多重比较校正。
-- 文献相似度不代表科学正确性。引用格式为 `[E...]`，与保存的原文片段关联。
-
-## 状态、预算与输出
-
-`needs_input`：等待补充；`completed`：流程检查通过；`insufficient_evidence`：RAG 检索无有效证据、未生成科研结论；`needs_review`：证据/审查未通过；`partial`：预算或运行错误中止；`failed`：规划失败。
-
-## 独立 RAG 路径
-
-问题示例：“根据本地文献，这篇研究如何量化脑脊液清除？请给出出处。”
-
-规划结果为 `needs_literature=true`、`needs_data=false` 时，代码直接执行检索，模型不需要先选择工具。`retrieval_query` 把历史指代改写为自包含问题；未提供则用原问题。
-
-`rag_retrieve` 调用已有 Qdrant 检索，默认最多 5 个片段、阈值 0.5，过滤空白与重复片段。没有有效证据时立即返回资料不足，不用历史证据凑答案。
-
-`rag_generate` 把当前问题、检索问题和证据原文放入上下文，要求关键结论标注 `[E...]`。审查只允许引用本次检索的 ID；失败时在同一批证据上修订，最多两次审查，且受全局调用上限限制。当前不会自动反复重检索或降低阈值。
-
-命令行显示引用文件和页码，`result.json` 中的 `route` 标识分支、`sources` 给出实际引用来源。只有 ID 有效不代表内容支持结论，仍保留辅助语义审查和人工复核边界。
-
-默认所有规划、执行、审查合计最多 12 次模型调用；最多 32 次工具调用；最多 2 次报告审查。修正次数同样受全局预算限制。最后一次模型调用仍要求工具时不执行这些工具。工具网络异常停止，不无限重试。
-
-输出在 `reports/runs/<run_id>/`：
-
-- `manifest.json`：数据来源、哈希、证据和产物路径。
-- `tool_results.json`：本次成功调用的参数和结果。
-- `trace.json`：节点顺序、模型次数、工具成功/失败、未解决问题。
-- `result.json`：最终回答与状态。
-- 用户要求报告时生成 `report.md`；图和导出 CSV 保存到同一目录。
-
-会话保存在 `data/sessions.sqlite`；模型读取最近 6 轮任务摘要和最近 20 个数据集元数据，完整历史仍在数据库。该版本是单用户串行 CLI，没有多人鉴权、并发会话写锁或任务崩溃后的自动断点续跑。
-
-## 知识库
-
-现有 Qdrant 可继续查询。本次未重建，也没有调用 Embedding API。新分块参数 1000/150 只在下一次建库时生效。
+首次使用文献检索前建库：
 
 ```powershell
-# 仅在明确要重建时运行；替换原 collection，消耗 Embedding API
+& .\.venv\Scripts\python.exe .\src\build_vector_store.py
+```
+
+数据分析任务不需要文献索引。新增文献后若要替换已有索引，明确执行：
+
+```powershell
+# 替换原 collection，并重新调用 Embedding API
 & .\.venv\Scripts\python.exe .\src\build_vector_store.py --rebuild
 ```
 
-本地 Qdrant 同进程复用连接；不要在两个进程同时打开同一嵌入式数据库目录。
+### 5. 开始提问
 
-## 开源参考与实现边界
+```powershell
+# 连续对话，输入 exit 退出
+& .\.venv\Scripts\python.exe .\src\main.py --session my-study
 
-参考 [GPT Researcher](https://github.com/assafelovic/gpt-researcher) 的研究规划、执行、来源整理与审查分工。参考版本：`3582a6841fe7dc801e2a34e34ee408641aea9bce`。
+# 单次任务：需要先放入具有对应字段的 experiment.csv
+& .\.venv\Scripts\python.exe .\src\main.py "筛选 experiment.csv 中 time 等于 30 的记录，展示 5 条。" --session my-study
+```
 
-按最新要求直接扩展现有代码：**当前不是该仓库的 fork，也没有安装或整合其完整运行时**。实验数据工具和本项目的流程适配独立实现。这样保留现有 Python 3.11 环境；后续确需上游特定模块时再做独立适配。
+沿用同一个 `--session` 可以使用近期任务上下文，换一个名称则开启独立会话。会话名允许 1–64 位字母、数字、下划线或连字符。模型读取最近 6 轮任务摘要及最近 20 个数据集元数据，完整历史保存在 SQLite 中。
 
-后续功能：专业术语表与混合检索、联网/MCP、更多实验设计、前端、真正的检索与任务成功率评估。已有离线测试不能替代真实模型和真实科研任务评估。
+## 📦 输出与可追溯性
+
+每个真实任务使用独立的 `run_id`，结果保存在：
+
+```text
+reports/runs/<run_id>/
+├── result.json          # 回答、状态、执行分支和引用来源
+├── trace.json           # 节点顺序、调用次数、工具事件与未解决问题
+├── manifest.json        # 数据来源、文件哈希、证据和产物路径
+├── tool_results.json    # 成功工具调用的参数与结果（有成功调用时）
+├── ds_*.json            # 完整数据快照（执行筛选时）
+├── groups_*.png         # 分组图（调用绘图时）
+├── ds_*.csv             # 完整数据导出（调用导出时）
+└── report.md            # 分析报告（用户要求保存报告时）
+```
+
+报告包含问题、任务状态、计划、回答、程序写入的计算记录、引用原文和文件产物。模型正文与原始工具结果分别保留，方便复核。
+
+| 状态 | 含义 |
+| :--- | :--- |
+| `completed` | 程序检查及辅助审查通过 |
+| `needs_input` | 等待补充必要信息 |
+| `insufficient_evidence` | 纯文献路径未找到有效证据 |
+| `needs_review` | 回答仍存在引用或审查问题 |
+| `partial` | 预算或运行异常导致任务未全部完成 |
+| `failed` | 规划阶段失败 |
+
+`completed` 不代表科研结论经过专家确认；引用编号有效，也不代表引用必然支持对应论断。
+
+## 🧪 验证与运行约束
+
+```powershell
+& .\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+**当前离线测试：36 项通过。** 使用假模型、假检索器和合成数据，覆盖工具执行、参数修正、会话保存、数据完整性、RAG 引用、资料不足及调用预算等关键行为；不调用真实 LLM 或 Embedding API。
+
+<details>
+<summary><b>调用预算与错误修正</b></summary>
+
+- 默认所有规划、执行、审查合计最多 **12 次模型调用**。
+- 默认最多 **32 次工具调用**、**2 次回答审查**。
+- 同一工具连续失败允许首次调用后最多 **3 次参数修正**，同时受全局预算约束。
+- 最后一次模型调用仍请求工具时，不再执行这些工具。
+- 网络异常不会触发无限重试；未完成任务会标记状态并保留已完成记录。
+
+</details>
+
+<details>
+<summary><b>统计分析的适用范围</b></summary>
+
+- 计算使用完整数据快照，`max_rows` 只限制给模型展示的条数。
+- CSV 采用 Pandas 默认类型推断与缺失值规则；相关缺失记录的排除数量会反馈，不自动剔除异常值。
+- 指定实验单位后，同单位同组的重复记录默认报错；仅在明确同意时用 `repeated=mean` 聚合。
+- 两组比较要求明确实验单位、独立组设计和 Welch 方法；每组至少 2 个有效单位，拒绝跨组重复 ID。
+- 暂不支持配对检验、多组检验、多重比较校正、重复测量或混合模型。
+- 不根据自然语言猜测时间单位、分组含义或因果关系。原始 CSV 内容变化后，需要重新筛选。
+
+</details>
+
+<details>
+<summary><b>检索与会话的当前边界</b></summary>
+
+- 当前知识库为本地 Qdrant，默认分块参数为 1000 / 150；已有索引需重建才应用新参数。
+- 纯文献路径默认最多检索 5 个片段，相似度阈值 0.5，并过滤空白、重复片段。
+- 纯文献回答仅允许引用本次检索证据；无有效证据时停止生成，不使用旧证据补齐答案。
+- 审查失败后可以在同一批证据上修订；纯文献路径尚未自动补检索或降低阈值。
+- 相似度分数不等于证据可信度，实验条件是否可比仍需要人工判断。
+- 会话保存用于后续对话，不是任务中断后的自动断点续跑。
+- 当前为单用户串行 CLI；无多人鉴权和并发会话写入协调。不要用两个进程同时打开同一个嵌入式 Qdrant 目录。
+
+</details>
+
+## 🗂️ 代码导航
+
+| 模块 | 关键文件 | 职责 |
+| :--- | :--- | :--- |
+| 入口 | [main.py](src/main.py) | 命令行、会话选择、结果展示 |
+| 工作流 | [research_agent.py](src/research_agent.py) | LangGraph 节点、条件路由、审查和预算 |
+| 工具循环 | [tool_agent.py](src/tool_agent.py) | Function Calling 消息配对、执行反馈与停止条件 |
+| 工具注册 | [tool_registry.py](src/tool_registry.py) | 描述、参数模型与执行函数的映射 |
+| 参数规范 | [research_schema.py](src/research_schema.py) | 规划、统计、检索与审查的数据模型 |
+| 实际工具 | [research_tools.py](src/research_tools.py) | Pandas / SciPy / Matplotlib 计算和检索适配 |
+| 检索与生成 | [retriever.py](src/retriever.py) · [rag_pipeline.py](src/rag_pipeline.py) | 文献检索和证据增强提示词 |
+| 文档入库 | [load_documents.py](src/load_documents.py) · [split_documents.py](src/split_documents.py) · [build_vector_store.py](src/build_vector_store.py) | 加载、清洗、分块与向量化 |
+| 存储 | [research_storage.py](src/research_storage.py) | SQLite 会话、数据快照、哈希与运行目录 |
+| 报告 | [research_report.py](src/research_report.py) | 引用检查、计算附录与 Markdown 输出 |
+| 演示与测试 | [offline_demo.py](src/offline_demo.py) · [tests](tests) | 无密钥体验与离线回归验证 |
+
+**建议阅读顺序：** `main.py → research_agent.py → tool_registry.py → research_tools.py`，然后再看存储、检索和测试。原有筛选相关模块保留兼容；`day4_research_agent.py` 与 `tool_agent.py` 的脚本入口也会进入统一 CLI。
+
+<a id="roadmap"></a>
+## 🛠️ 开发路线
+
+- [x] LangGraph 规划、工具循环、审查与结果保存
+- [x] 数据筛选、完整快照、分组统计、Welch 比较、绘图和导出
+- [x] 独立 RAG 路径、证据编号与页码引用
+- [x] 参数校验、有限修正与全局调用预算
+- [x] SQLite 跨轮会话、运行日志与 Markdown 报告
+- [x] 合成数据离线演示与 36 项离线测试
+- [ ] 真实模型与真实科研任务的端到端评估
+- [ ] 专业术语对照表、混合检索、重排序与证据不足时补检索
+- [ ] 文献和数据分支并行、独立子 Agent 协作
+- [ ] 联网文献来源与 MCP 工具接入
+- [ ] 网页交互界面、文件上传和过程展示
+- [ ] 更多统计设计与分析工具
+- [ ] CI 自动测试、检索质量、任务成功率、耗时与成本评估
+
+## 📚 设计参考
+
+研究规划、执行、来源整理与审查的职责划分参考 [GPT Researcher](https://github.com/assafelovic/gpt-researcher/tree/3582a6841fe7dc801e2a34e34ee408641aea9bce)。本项目在原有 Python 项目上独立扩展，保留面向实验 CSV 的工具与校验逻辑；没有引入该项目的完整运行时。
+
+## 💬 交流与反馈
+
+欢迎通过 [Issues](https://github.com/shen970297-gif/research-data-agent/issues) 提出使用问题、复现步骤和功能建议。反馈时可以附上任务状态、报错类型及最小合成数据示例，请移除密钥和未公开科研数据。
+
+---
+
+<div align="center">
+
+**让每一次分析，都留下可以检查的计算与证据。**
+
+[回到顶部](#科研文献与实验数据分析-agent)
+
+</div>
