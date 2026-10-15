@@ -1,0 +1,52 @@
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 环境变量和 API Key
+.env
+.env.*
+!.env.example
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyCharm 配置
+.idea/
+*.iml
+
+# 测试和构建缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Agent 项目运行数据
+data/chroma/
+data/local_vector_store/
+data/app.db
+data/sessions.sqlite*
+data/qdrant/
+reports/runs/
+reports/offline_demo/
+logs/
+*.log
+
+# 临时文件
+*.tmp
+*.temp
+.DS_Store
+
+# Public repository: keep only the three reviewed reference examples.
+/data/*
+!/data/reference/
+/data/reference/*
+!/data/reference/analysis_limits.md
+!/data/reference/dataset_dictionary.md
+!/data/reference/metric_definitions.md
+/reports/
+/.jbeval/
